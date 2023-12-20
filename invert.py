@@ -71,7 +71,8 @@ def main():
     
     image_list_name = os.path.splitext(os.path.basename(dataset_items[0]))[0]    
     output_dir = args.output_dir or f'results/{image_list_name}'
-    
+
+    #Load all the models required (Generator, Encoder, Perceptual model and Discriminator)
     gerador = StyleGANGenerator(args.model_name)
     encoder = StyleGANEncoder(args.model_name)
     perceptual = PerceptualModel(min_val=gerador.min_val, max_val=gerador.max_val)
@@ -79,13 +80,15 @@ def main():
     discriminador = Discriminator(size=256).to(gerador.run_device)
     discriminador.load_state_dict(torch.load('models/pretrain/FFHQ256_940k_flip.pt')["d"])
     
+    #Processes all the individuals from the dataset
     for dataset_item_idx in tqdm(range(len(dataset_items)), leave=False):    
         foldername = dataset_items[dataset_item_idx]
         
         image_list_name = os.path.splitext(os.path.basename(foldername))[0]            
         output_dir = os.path.join(f'results/', image_list_name)
         os.makedirs(output_dir, exist_ok=True)
-        
+
+        #First invert all the reference images into the GAN's latent space
         reference_images = [item for item in sorted(os.listdir(f'{args.dataset}/{foldername}/reference_imgs/')) if (item != '.ipynb_checkpoints')]
     
         print(f'Inverting reference images for {foldername}!')
@@ -122,6 +125,7 @@ def main():
             num_rows=len(reference_images), num_cols=len(headers), viz_size=viz_size)
         visualizer.set_headers(headers)
 
+        #Invert images
         latent_codes = []
         for reference_img_idx in range(len(reference_images)):
             reference_img = reference_images[reference_img_idx]
@@ -157,15 +161,14 @@ def main():
         visualizer = HtmlPageVisualizer(num_rows=len(occluded_files), num_cols=len(headers), viz_size=viz_size)
         visualizer.set_headers(headers)
 
+        #With all reference images inverted, reconstruct the occluded ones
         for occl_file_idx in range(len(occluded_files)):
             occluded_file = occluded_files[occl_file_idx]
             occlusion_mask = occlusion_files[occl_file_idx]
 
-            #----------- Inverter a imagem ocluida já com os latent codes das reference images -----------
             latent_codes = np.load(f'{output_dir}/inverted_codes.npy')
             reference_img_count = np.shape(latent_codes)[0]
 
-            # Initialize the inverter with the current hyperparameters combination
             inverter = StyleGANInverter(
                 args.model_name,
                 learning_rate=args.learning_rate,

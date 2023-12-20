@@ -5,17 +5,10 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 import os
-#from sklearn.neighbors import KernelDensity
 
 import torch
 from torch.nn import functional as F
 from torchvision import transforms
-
-#from models.stylegan_generator import StyleGANGenerator
-#from models.stylegan_encoder import StyleGANEncoder
-#from models.perceptual_model import PerceptualModel
-
-#from models.styleNAT_discriminator import Discriminator
 
 from utils.visualizer import save_image, load_image, resize_image
 from utils.mask_polygon import get_mask_percentage
@@ -42,8 +35,9 @@ class StyleGANInverter(object):
 
   (1) Pixel-wise reconstruction loss. (required)
   (2) Perceptual loss. (optional, but recommended)
-  (3) Regularization loss from encoder. (optional, but recommended for in-domain
-      inversion)
+  (3) Regularization loss from encoder. (optional)
+  (4) Potential function loss (required when using prior knowledge)
+  (5) Discriminator loss (optional)
 
   NOTE: The encoder can be missing for inversion, in which case the latent code
   will be randomly initialized and the regularization loss will be ignored.
@@ -72,23 +66,7 @@ class StyleGANInverter(object):
                logger=None):
     """Initializes the inverter.
 
-    NOTE: Only Adam optimizer is supported in the optimization process.
-
-    Args:
-      model_name: Name of the model on which the inverted is based. The model
-        should be first registered in `models/model_settings.py`.
-      logger: Logger to record the log message.
-      learning_rate: Learning rate for optimization. (default: 1e-2)
-      iteration: Number of iterations for optimization. (default: 100)
-      reconstruction_loss_weight: Weight for reconstruction loss. Should always
-        be a positive number. (default: 1.0)
-      perceptual_loss_weight: Weight for perceptual loss. 0 disables perceptual
-        loss. (default: 5e-5)
-      regularization_loss_weight: Weight for regularization loss from encoder.
-        This is essential for in-domain inversion. However, this loss will
-        automatically ignored if the generative model does not include a valid
-        encoder. 0 disables regularization loss. (default: 2.0)
-    """
+    NOTE: Only Adam optimizer is supported in the optimization process."""
     
     self.logger = logger
     self.model_name = model_name
@@ -117,7 +95,6 @@ class StyleGANInverter(object):
     self.potential_function_loss = potential_function_loss
     self.proportional_loss = proportional_loss
     self.proportional_scale = proportional_scale
-    #self.proportional_scale = 5
     self.proportional_shift = proportional_shift
     self.prior_flag = prior_flag
     self.discriminator_loss = discriminator_loss
@@ -178,7 +155,6 @@ class StyleGANInverter(object):
     x = self.G.to_tensor(x.astype(np.float32))
     z = _get_tensor_value(self.E.net(x).view(1, *self.encode_dim))
     
-    #print(np.shape(z))
     return z.astype(np.float32)
 
   def invert(self, image, num_viz=0):
@@ -192,11 +168,11 @@ class StyleGANInverter(object):
       num_viz: Number of intermediate outputs to visualize. (default: 0)
 
     Returns:
-      A two-element tuple. First one is the inverted code. Second one is a list
+      A three-element tuple. First one is the inverted code. Second one is a list
         of intermediate results, where first image is the input image, second
         one is the reconstructed result from the initial latent code, remainings
         are from the optimization process every `self.iteration // num_viz`
-        steps.
+        steps and third one is the loss value obtained.
     """    
         
     x = image[np.newaxis]
@@ -219,21 +195,18 @@ class StyleGANInverter(object):
 
     optimizer = torch.optim.Adam([z], lr=self.learning_rate)
 
-    viz_results_known_latent_codes = []
     viz_results = []
     viz_results.append(self.G.postprocess(_get_tensor_value(x))[0])
     x_init_inv = self.G.net.synthesis(z)
     viz_results.append(self.G.postprocess(_get_tensor_value(x_init_inv))[0])
-    #pbar = tqdm(range(1, self.iteration + 1), leave=True)
     pbar = range(1, self.iteration + 1)
     
         
     if (self.potential_function_loss or self.proportional_loss):
         # Load the latent codes from the .npy file
-        #latent_codes = np.load('results/inversion/Abdullah_Gul_without5/inverted_codes.npy')
         latent_codes = self.latent_codes
         
-        #stores the number of latent codes
+        # Stores the number of latent codes
         num_known_latents = np.shape(latent_codes)[0]
 
     
@@ -247,17 +220,14 @@ class StyleGANInverter(object):
 
             loss_pix = torch.mean((masked_x - masked_xrec) ** 2)
             loss = loss + loss_pix * self.loss_pix_weight
-            #log_message = f'loss_pix: {_get_tensor_value(loss_pix):.3f}'
 
       elif self.loss_pix_weight != 0:
           x_rec = self.G.net.synthesis(z)
           loss_pix = torch.mean((x - x_rec) ** 2)
           loss = loss + loss_pix * self.loss_pix_weight
-          #log_message = f'loss_pix: {_get_tensor_value(loss_pix):.3f}'
         
       else:
         x_rec = self.G.net.synthesis(z)
-        #log_message = f'aaa'
 
       # Perceptual loss.
       if (self.loss_feat_weight != 0 and self.mask_flag):
@@ -266,25 +236,21 @@ class StyleGANInverter(object):
         x_rec_feat = self.F.net(masked_xrec)
         loss_feat = torch.mean((x_feat - x_rec_feat) ** 2)
         loss = loss + loss_feat * self.loss_feat_weight
-        #log_message += f', loss_feat: {_get_tensor_value(loss_feat):.3f}'
         
       elif self.loss_feat_weight != 0:
         x_feat = self.F.net(x)
         x_rec_feat = self.F.net(x_rec)
         loss_feat = torch.mean((x_feat - x_rec_feat) ** 2)
         loss = loss + loss_feat * self.loss_feat_weight
-        #log_message += f', loss_feat: {_get_tensor_value(loss_feat):.3f}'
 
       # Regularization loss.
       if self.loss_reg_weight:
         z_rec = self.E.net(x_rec).view(1, *self.encode_dim)
         loss_reg = torch.mean((z - z_rec) ** 2)
-        loss = loss + loss_reg * self.loss_reg_weight
-        #log_message += f', loss_reg: {_get_tensor_value(loss_reg):.3f}'        
+        loss = loss + loss_reg * self.loss_reg_weight      
         
       if self.potential_function_loss:
         #Define parameters for each gaussian
-        #sigma = 10
         A = 1
         gaussians = torch.tensor([], dtype=torch.float32).to(self.run_device)
 
@@ -295,38 +261,19 @@ class StyleGANInverter(object):
             gaussian = A * torch.exp(-norm / (2 * self.gaussian_sigma**2))
             gaussians = torch.cat((gaussians, gaussian.unsqueeze(0)), dim=0)            
         
-        potential_value = torch.sum(gaussians)
-
-        #log_message += f', potential value: {potential_value:.3f}'
-        
+        potential_value = torch.sum(gaussians)        
         potential_value = -1 * potential_value
 
         loss = loss + potential_value * self.potential_function_loss        
 
        
       if self.discriminator_loss:
-        #Discriminator loss, we should maximize the output value as it represents a score of how realistic the input image is 
         x_rec = self.G.net.synthesis(z)
 
         d_result = self.D(x_rec)
-        d_loss = F.softplus(d_result).mean() #softplus is a smooth approximation to the ReLU
-
-        #log_message += f', discriminator_score: {d_result.mean():.3f}'
-        #log_message += f', discriminator_loss: {d_loss:.3f}'
-        
-        #d_result = -1 * d_result
+        d_loss = F.softplus(d_result).mean()
         
         loss = loss + d_loss * self.discriminator_loss
-        
-        
-        
-      #log_message += f', loss: {_get_tensor_value(loss):.3f}'
-      #pbar.set_description_str(log_message)
-      """
-      if self.logger:
-        self.logger.debug(f'Step: {step:05d}, '
-                          f'lr: {self.learning_rate:.2e}, '
-                          f'{log_message}')"""
 
       # Do optimization.
       optimizer.zero_grad()
@@ -336,17 +283,14 @@ class StyleGANInverter(object):
       if num_viz > 0 and step % (self.iteration // num_viz) == 0:
         viz_results.append(self.G.postprocess(_get_tensor_value(x_rec))[0])
         
-    return _get_tensor_value(z), viz_results, viz_results_known_latent_codes, loss
-
-
-
+    return _get_tensor_value(z), viz_results, loss
 
 
   def easy_invert(self, image, mask_path, num_viz=0):
-    """Wraps functions `preprocess()` and `invert()` together."""
+    """Receives the binary occlusion mask and with its dimensions calculates the weights for the reconstruction loss and the gaussian loss.
+    Wraps functions `preprocess()` and `invert()` together."""
     
     if self.mask_flag:
-        #mask = cv2.imread('analysis_output/Abdullah_Gul/mask.png', cv2.IMREAD_GRAYSCALE)
         self.mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
     
     if self.proportional_loss and self.mask_flag:
@@ -354,7 +298,6 @@ class StyleGANInverter(object):
             
         # A sigmoidal function: scale controls how steep the transition is, and shift controls the midpoint of the transition.
         weight = 2 * (1 / (1 + np.exp(-self.proportional_scale * (mask_percentage - self.proportional_shift))))
-        #self.loss_pix_weight = 1 - weight
         self.potential_function_loss = weight
         
     else:
