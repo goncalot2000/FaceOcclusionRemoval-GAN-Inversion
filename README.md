@@ -52,7 +52,7 @@ All the synthetic face occlusions used were produced by [face-occlusion-generato
 
 **NOTE:** Both occluded images and the corresponding occlusions masks need to have the same name.
 
-## Face Oclusion Removel
+## Face Oclusion Removal
 
 ```bash
 MODEL_NAME='styleganinv_ffhq256'
