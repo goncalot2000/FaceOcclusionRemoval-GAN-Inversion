@@ -50,7 +50,7 @@ All the synthetic face occlusions used were produced by [face-occlusion-generato
 | &ensp;&ensp;&ensp;&ensp;&boxvr;&nbsp; occlusion_mask | Directory containing the binary occlusion masks for the images being reconstructed 
 | &ensp;&ensp;&ensp;&ensp;&boxvr;&nbsp; reference_imgs | Directory containing the reference images
 
-**NOTE:** Both occluded images and the corresponding occlusions masks need to have the same name.
+**NOTE:** Both occluded images and the corresponding occlusion masks need to have the same name.
 
 ## Face Oclusion Removal
 
