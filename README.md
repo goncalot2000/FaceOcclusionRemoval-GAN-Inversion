@@ -36,7 +36,7 @@ python -m pip install -r requirements.txt
 
 ## Data Input
 
-All the synthetic face occlusions used were produced by [face-occlusion-generator](https://github.com/kennyvoo/face-occlusion-generation).
+All the experiments were done with [LFW dataset](https://vis-www.cs.umass.edu/lfw/) and the synthetic face occlusions were produced by [face-occlusion-generator](https://github.com/kennyvoo/face-occlusion-generation).
 
 | Path | Description
 | :--- | :----------
@@ -51,8 +51,6 @@ All the synthetic face occlusions used were produced by [face-occlusion-generato
 | &ensp;&ensp;&ensp;&ensp;&boxvr;&nbsp; reference_imgs | Directory containing the reference images
 
 **NOTE:** Both occluded images and the corresponding occlusion masks need to have the same name.
-
-All the experiments were done with [LFW dataset](https://vis-www.cs.umass.edu/lfw/).
 
 ## Face Oclusion Removal
 
